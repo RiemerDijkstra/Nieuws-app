@@ -1,43 +1,60 @@
-# Simple workflow for deploying static content to GitHub Pages
-name: Deploy static content to Pages
+name: Nieuws ophalen en publiceren
 
 on:
-  # Runs on pushes targeting the default branch
+  schedule:
+    - cron: '17 */3 * * *'
   push:
     branches: ["main"]
-
-  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
-# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
 concurrency:
   group: "pages"
   cancel-in-progress: false
 
 jobs:
-  # Single deploy job since we're just deploying
   deploy:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - name: Checkout
+      - name: Code ophalen
         uses: actions/checkout@v4
-      - name: Setup Pages
+
+      - name: Node.js installeren
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Onderdelen installeren
+        run: npm ci
+
+      - name: Pages voorbereiden
+        id: pages
         uses: actions/configure-pages@v5
-      - name: Upload artifact
+
+      - name: Nieuws ophalen (paywalls eruit, plaats en urgentie bepalen)
+        run: npm run fetch
+        env:
+          PREVIOUS_NEWS_URL: ${{ steps.pages.outputs.base_url }}/data/news.json
+
+      - name: Website samenstellen
+        run: |
+          mkdir -p _site
+          cp -r index.html favicon.svg assets data _site/
+
+      - name: Website uploaden
         uses: actions/upload-pages-artifact@v3
         with:
-          # Upload entire repository
-          path: '.'
-      - name: Deploy to GitHub Pages
+          path: _site
+
+      - name: Publiceren op GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
