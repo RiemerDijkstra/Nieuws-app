@@ -1,0 +1,17 @@
+{
+  "name": "wereldblik",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Nieuws van zeven kwaliteitsmedia op een lijst en op een fysieke wereldkaart.",
+  "type": "module",
+  "scripts": {
+    "fetch": "node scripts/fetch-news.mjs",
+    "preview": "npx --yes http-server site -p 8080 -c-1"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^5.11.1"
+  }
+}
