@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // ---------------------------------------------------------------------------
 // Haalt de feeds op, laat paywall-artikelen en oude berichten weg, bepaalt de
-// locatie en urgentie, en schrijft site/data/news.json.
-// Draait automatisch via GitHub Actions; lokaal: `npm run fetch`.
+// locatie en urgentie, en schrijft data/news.json.
+// Draait automatisch via GitHub Actions (.github/workflows/static.yml).
 // ---------------------------------------------------------------------------
 import { mkdir, writeFile } from 'node:fs/promises';
 import { SETTINGS, SOURCES } from './config.mjs';
@@ -12,7 +12,7 @@ import { locate, NL_CODES } from './lib/geocode.mjs';
 import { keywordScore, assignUrgency } from './lib/urgency.mjs';
 import { fetchText, pool, canonicalUrl, truncate, hash, isHttpUrl } from './lib/util.mjs';
 
-const OUT = new URL('../site/data/news.json', import.meta.url);
+const OUT = new URL('../data/news.json', import.meta.url);
 
 async function main() {
   const now = Date.now();
@@ -131,13 +131,40 @@ async function main() {
 
   printSummary(output.meta);
   if (articles.length === 0) {
-    console.error('\nGeen enkel artikel opgehaald. news.json wordt niet overschreven.');
-    process.exitCode = 1;
-    return;
+    // Niets binnengekomen (bijv. alle feeds tijdelijk onbereikbaar):
+    // houd dan het nieuws van de huidige website aan, zodat die niet leeg raakt.
+    const previous = await previousNews(cutoff);
+    if (previous) {
+      console.log('::warning::Geen enkel artikel opgehaald. Het nieuws van de vorige run blijft staan.');
+      await save(previous);
+      return;
+    }
+    console.log('::warning::Geen enkel artikel opgehaald en geen eerdere versie gevonden. De site toont een melding.');
+    output.meta.fetchFailed = true;
   }
+  await save(output);
+}
+
+async function save(data) {
   await mkdir(new URL('.', OUT), { recursive: true });
-  await writeFile(OUT, JSON.stringify(output), 'utf8');
-  console.log(`\nGeschreven: site/data/news.json (${articles.length} artikelen)`);
+  await writeFile(OUT, JSON.stringify(data), 'utf8');
+  console.log(`\nGeschreven: data/news.json (${data.articles.length} artikelen)`);
+}
+
+/** Haalt het news.json van de live website op (wordt door de workflow meegegeven). */
+async function previousNews(cutoff) {
+  const url = process.env.PREVIOUS_NEWS_URL;
+  if (!url || !isHttpUrl(url)) return null;
+  const res = await fetchText(url, { accept: 'application/json' });
+  if (!res.ok) return null;
+  try {
+    const data = JSON.parse(res.text);
+    if (!data?.meta || !Array.isArray(data.articles)) return null;
+    data.articles = data.articles.filter((a) => Date.parse(a.published) >= cutoff);
+    return data.articles.length ? data : null;
+  } catch {
+    return null;
+  }
 }
 
 function printSummary(meta) {
@@ -154,7 +181,7 @@ function printSummary(meta) {
       String(t.unverified).padStart(7),
       String(t.kept).padStart(7),
     );
-    for (const f of t.feedsFailed) console.log('   ! feed mislukt:', f);
+    for (const f of t.feedsFailed) console.log(`::warning::${s.name}: feed mislukt ${f}`);
   }
   console.log(`Nederland: ${meta.counts.nl}  Wereld: ${meta.counts.world}  Op de kaart: ${meta.counts.mapped}`);
 }
